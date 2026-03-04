@@ -1,0 +1,684 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║            FORGEENGINE – COMPLETE BUILD & INTEGRATION SPECIFICATION         ║
+║            Mobile Game Editor: C++ Dear ImGui + JMonkeyEngine 3             ║
+║            Version 1.0  |  Target: Android API 26-34  |  ARM64/x86_64       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 – PROJECT DIRECTORY STRUCTURE (complete)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ForgeEngine/                              ← PROJECT ROOT
+│
+├── CMakeLists.txt                        ← NDK native build (CMake 3.22+)
+├── README.md                            ← Quick start
+├── FORGE_BUILD_SPEC.txt                 ← THIS FILE
+│
+├── android/                             ← Android module root
+│   ├── android_main.cpp                 ← NDK entry point (EGL + ImGui loop)
+│   ├── EditorBridge.java               ← Legacy bridge (kept for reference)
+│   ├── ForgeCommandStack.java           ← Undo/redo command stack
+│   ├── ForgeJMEApp.java                 ← Legacy JME app (replaced by Full)
+│   └── src/
+│       └── main/
+│           ├── AndroidManifest.xml      ← App manifest
+│           ├── build.gradle             ← Gradle build script (JME deps here)
+│           ├── proguard-rules.pro       ← Release obfuscation rules
+│           ├── assets/
+│           │   └── icons/              ← ★ ICON FILES GO HERE
+│           │       ├── svg/            ← Primary: SVG files (72 files)
+│           │       └── png/            ← Fallback: PNG files (72 files, 64x64px)
+│           └── java/com/forgeengine/
+│               ├── ForgeActivity.java   ← Main Activity (bootstraps everything)
+│               ├── editor/
+│               │   ├── EditorBridgeFull.java  ← ★ PRIMARY JNI BRIDGE (Java side)
+│               │   └── ForgeJMEAppFull.java   ← JMonkeyEngine 3 Application
+│               ├── physics/
+│               │   └── PhysicsManager.java    ← Bullet physics wrapper
+│               ├── audio/
+│               │   └── AudioManager.java      ← OpenAL audio wrapper
+│               ├── input/
+│               │   └── ForgeInputManager.java ← Touch/gamepad/keyboard input
+│               ├── scripting/
+│               │   └── ScriptingEngine.java   ← Groovy scripting runtime
+│               └── network/
+│                   └── NetworkManager.java    ← TCP/UDP multiplayer
+│
+├── editor/                              ← C++ Dear ImGui editor
+│   ├── ForgeEditor.h                    ← ★ Core types, enums, globals
+│   ├── ForgeEditor.cpp                  ← Theme, ForgeUI helpers, GEditor/GJNI globals
+│   ├── ForgeEditor_Main.cpp             ← ForgeEditor_Init() + ForgeEditor_Render()
+│   ├── blueprint/
+│   │   └── BlueprintEditor.cpp          ← Visual scripting graph editor
+│   ├── codeeditor/
+│   │   └── CodeEditor.cpp               ← Syntax-highlighted Groovy/Java editor
+│   ├── gizmo/
+│   │   └── TransformGizmo.cpp           ← 3D translate/rotate/scale gizmos
+│   ├── material/
+│   │   └── MaterialEditor.cpp           ← PBR material node graph
+│   ├── network/
+│   │   └── NetworkPanel.cpp             ← Multiplayer host/join/chat panel
+│   ├── panels/
+│   │   ├── AllPanels.h                  ← ★ All panel forward declarations
+│   │   ├── AnimatorPanel.h              ← Animation panel header
+│   │   ├── ConsolePanel.h               ← Console header
+│   │   ├── HierarchyPanel.h/.cpp        ← Scene hierarchy tree
+│   │   ├── InspectorPanel.h/.cpp        ← Basic inspector
+│   │   ├── InspectorPanelFull.cpp       ← Full inspector (physics/audio/scripts)
+│   │   ├── ProjectPanel.h/.cpp          ← Asset browser
+│   │   ├── TopBar.cpp                   ← Top toolbar (play/stop/mode/tools)
+│   │   └── EditorPanels.cpp             ← Console, Animator, Viewports, Settings,
+│   │                                       Build, NewObjectPopup, About, GamePreview
+│   ├── prefab/
+│   │   ├── PrefabSystem.h               ← Prefab types
+│   │   └── PrefabSystem.cpp             ← Prefab panel + inspector section
+│   ├── widgets/
+│   │   ├── IconSystem.h                 ← ★ Icon enum (72 icons) + API
+│   │   └── IconSystem.cpp               ← SVG/PNG loading, GL textures
+│   └── windows/
+│       ├── BuildWindow.h                ← Build modal header (impl in EditorPanels)
+│       ├── GamePreviewWindow.h          ← Game preview header
+│       ├── SettingsWindow.h             ← Settings header
+│       └── ViewportWindow.h             ← Viewport header
+│
+├── jni/
+│   ├── JNIBridgeFull.h                  ← ★ PRIMARY C++ JNI bridge (102 methods)
+│   ├── JNIBridgeFull.cpp                ← All JNI implementations
+│   ├── JNIBridge.h                      ← Legacy bridge (reference only)
+│   └── JNIBridge.cpp                    ← Legacy bridge (reference only)
+│
+└── third_party/                         ← ★ YOU MUST PROVIDE THESE (see Section 3)
+    ├── imgui/                           ← Dear ImGui (docking branch)
+    ├── nanosvg/                         ← NanoSVG header-only SVG rasterizer
+    ├── stb/                             ← stb_image.h single-header PNG loader
+    └── android_native_app_glue/         ← From Android NDK
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 – JMONKEYENGINE SETUP & LOCATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+JMonkeyEngine is a JAVA/Kotlin library added via Gradle (NOT compiled from source).
+It is NOT placed in the project folder. Gradle downloads it from Maven Central.
+
+► FILE: android/src/main/build.gradle
+  All JME dependencies are declared there under "dependencies { }".
+
+JME VERSION: 3.6.1-stable  (Maven: org.jmonkeyengine)
+
+Required JME artifacts (auto-downloaded by Gradle):
+  ┌─ jme3-core             → Core engine, math, scene graph
+  ├─ jme3-android          → Android renderer, input, JNI glue
+  ├─ jme3-android-native   → Android-specific native JNI libs (.so)
+  ├─ jme3-bullet           → Bullet physics Java API
+  ├─ jme3-bullet-native    → Bullet physics compiled natives
+  ├─ jme3-bullet-native-android → Bullet for ARM/x86 Android ABIs
+  ├─ jme3-terrain          → Terrain + heightmap system
+  ├─ jme3-effects          → FilterPostProcessor (Bloom, SSAO, DOF, FXAA)
+  └─ jme3-openal-soft      → OpenAL Soft audio backend
+
+Additional dependencies (also in build.gradle):
+  ├─ org.codehaus.groovy:groovy:3.0.19    → Runtime Groovy scripting
+  ├─ com.esotericsoftware:kryonet:2.22.0-RC1 → Production networking
+  └─ org.json:json:20231013               → JSON parsing
+
+JME RUNTIME FILES location inside APK:
+  assets/       → JME asset manager reads from here
+  lib/arm64-v8a/ lib/x86_64/ → .so files (libbulletjme.so etc.)
+
+WHERE JME CODE LIVES IN THIS PROJECT:
+  android/src/main/java/com/forgeengine/editor/ForgeJMEAppFull.java
+    → Extends SimpleApplication, initializes BulletAppState,
+      FilterPostProcessor, lighting, grid, environment probe.
+
+  android/src/main/java/com/forgeengine/editor/EditorBridgeFull.java
+    → Main JNI-exposed class. All ~120 public methods are called
+      from C++ via JNIBridgeFull.cpp.
+    → Instantiated by ForgeActivity.java onCreate().
+
+  android/src/main/java/com/forgeengine/physics/PhysicsManager.java
+    → Uses jme3-bullet: BulletAppState, RigidBodyControl,
+      BetterCharacterControl, CollisionShapeFactory.
+
+  android/src/main/java/com/forgeengine/audio/AudioManager.java
+    → Uses jme3-core AudioNode, AudioContext.
+
+  android/src/main/java/com/forgeengine/scripting/ScriptingEngine.java
+    → Uses GroovyClassLoader (from groovy dep above).
+
+JME ASSET MANAGER paths (passed as strings from C++):
+  "Models/MyModel.j3o"      → model asset
+  "Textures/wood.png"       → texture
+  "Sounds/bgm.ogg"          → audio
+  "MatDefs/PBR.j3md"        → material definition
+  All resolved from: android/src/main/assets/
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 – THIRD-PARTY DEPENDENCIES SETUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Run these commands from the project root:
+
+# 1. Dear ImGui (docking branch – REQUIRED)
+git clone --depth 1 --branch docking \
+    https://github.com/ocornut/imgui.git \
+    third_party/imgui
+
+# 2. NanoSVG (header-only SVG rasterizer)
+git clone --depth 1 \
+    https://github.com/memononen/nanosvg.git \
+    third_party/nanosvg_repo
+mkdir -p third_party/nanosvg
+cp third_party/nanosvg_repo/src/nanosvg.h    third_party/nanosvg/
+cp third_party/nanosvg_repo/src/nanosvgrast.h third_party/nanosvg/
+
+# 3. stb_image (single header PNG/JPG loader)
+mkdir -p third_party/stb
+curl -L -o third_party/stb/stb_image.h \
+    https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+
+# 4. android_native_app_glue (from your NDK)
+#    Replace $NDK with your NDK path, e.g. ~/Android/Sdk/ndk/26.1.10909125
+cp -r $NDK/sources/android/native_app_glue \
+    third_party/android_native_app_glue
+
+After setup, third_party/ should look like:
+  third_party/
+    imgui/              (imgui.h, imgui.cpp, backends/, ...)
+    nanosvg/            (nanosvg.h, nanosvgrast.h)
+    stb/                (stb_image.h)
+    android_native_app_glue/  (android_native_app_glue.h, .c)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 – BUILD STEPS (complete, in order)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PREREQUISITES:
+  • Android Studio Hedgehog (2023.1.1) or later
+  • Android SDK API 34
+  • NDK 26.x (r26 recommended)
+  • CMake 3.22+  (install via SDK Manager → SDK Tools)
+  • JDK 17+
+  • Gradle 8.x (wrapper in project handles this automatically)
+  • Device or emulator: Android 8.0+ (API 26), OpenGL ES 3.0
+
+STEP 1 – Clone & setup third_party (see Section 3 above)
+
+STEP 2 – Open project in Android Studio
+  File → Open → select the ForgeEngine/ root folder
+  Android Studio will detect build.gradle automatically.
+
+STEP 3 – Sync Gradle
+  Click "Sync Now" when prompted, or:
+  ./gradlew :android:dependencies   (verify JME resolves)
+
+STEP 4 – Configure NDK path
+  In local.properties (create if missing):
+    ndk.dir=/path/to/your/ndk
+    sdk.dir=/path/to/your/sdk
+
+STEP 5 – Build debug APK
+  ./gradlew :android:assembleDebug
+  Output: android/build/outputs/apk/debug/android-debug.apk
+
+STEP 6 – Install and run
+  adb install -r android/build/outputs/apk/debug/android-debug.apk
+  adb shell am start -n com.forgeengine/.ForgeActivity
+
+STEP 7 – Release build (optional)
+  Create a keystore: keytool -genkey -v -keystore forge.keystore ...
+  In build.gradle signingConfigs, add your keystore.
+  ./gradlew :android:assembleRelease
+
+CMake is invoked automatically by Gradle via the externalNativeBuild
+block in build.gradle – you do NOT run cmake manually.
+
+BUILD.GRADLE externalNativeBuild section:
+  android {
+    defaultConfig {
+      externalNativeBuild {
+        cmake {
+          cppFlags "-std=c++17"
+          abiFilters "arm64-v8a", "x86_64"
+        }
+      }
+    }
+    externalNativeBuild {
+      cmake {
+        path "../../CMakeLists.txt"   // points to project root CMakeLists.txt
+        version "3.22.1"
+      }
+    }
+  }
+
+Note: The CMakeLists.txt already contains this configuration.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 – COMPLETE ICON FILE LIST (72 icons)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All icons go in: android/src/main/assets/icons/svg/  (SVG, primary)
+            and: android/src/main/assets/icons/png/  (PNG 64×64px, fallback)
+
+Icon enum name       → File name (no extension)    Description
+─────────────────────────────────────────────────────────────────────────────
+GENERAL UI:
+  MENU               → menu                         Hamburger menu (3 lines)
+  CLOSE              → close                         X / close button
+  MINIMIZE           → minimize                      Dash / minimize
+  MAXIMIZE           → maximize                      Square / maximize
+  FLOAT              → float                         Window floating indicator
+  DOCK               → dock                          Dock/snap icon
+  SEARCH             → search                        Magnifying glass
+  FILTER             → filter                        Funnel/filter
+  SETTINGS           → settings                      Gear / cog
+  ADD                → add                           Plus sign
+  REMOVE             → remove                        Minus sign
+  SAVE               → save                          Floppy disk
+  BUILD              → build                         Hammer / wrench
+  FOLDER_OPEN        → folder_open                   Open folder
+  FOLDER_CLOSED      → folder_closed                 Closed folder
+  VISIBILITY_ON      → visibility_on                 Eye (open)
+  VISIBILITY_OFF     → visibility_off                Eye with slash
+
+PLAY CONTROLS:
+  PLAY               → play                          Right-pointing triangle
+  PAUSE              → pause                         Two vertical bars
+  STOP               → stop                          Square
+
+EDIT ACTIONS:
+  UNDO               → undo                          Curved arrow left
+  REDO               → redo                          Curved arrow right
+
+GIZMO / TRANSFORM:
+  GIZMO_TRANSLATE    → gizmo_translate               XYZ arrows
+  GIZMO_ROTATE       → gizmo_rotate                  Circular arrows
+  GIZMO_SCALE        → gizmo_scale                   Corner resize arrows
+  SNAP               → snap                          Magnet
+  COORD_LOCAL        → coord_local                   L badge on axis
+  COORD_WORLD        → coord_world                   Globe / W badge
+
+SCENE OBJECTS (generic):
+  NODE               → node                          Circle with dot
+  GEOMETRY           → geometry                      Triangle / mesh shape
+  LIGHT              → light                         Light bulb / sun
+  CAMERA             → camera                        Camera body
+  AUDIO              → audio                         Speaker / waveform
+  TERRAIN            → terrain                       Mountains silhouette
+  PARTICLE           → particle                      Sparkle / dots burst
+
+SPECIFIC OBJECT TYPES:
+  OBJ_BOX            → obj_box                       Cube outline
+  OBJ_SPHERE         → obj_sphere                    Circle / sphere
+  OBJ_CYLINDER       → obj_cylinder                  Cylinder shape
+  OBJ_CAPSULE        → obj_capsule                   Capsule / pill shape
+  OBJ_TORUS          → obj_torus                     Donut / torus ring
+  OBJ_PLANE          → obj_plane                     Flat rectangle
+  OBJ_LIGHT_POINT    → obj_light_point               Dot with rays
+  OBJ_LIGHT_DIR      → obj_light_dir                 Parallel arrows down
+  OBJ_LIGHT_SPOT     → obj_light_spot                Cone of light
+
+ASSET TYPES (project browser):
+  ASSET_SCENE        → asset_scene                   Film clapperboard
+  ASSET_MODEL        → asset_model                   3D cube
+  ASSET_TEXTURE      → asset_texture                 Image / photo
+  ASSET_MATERIAL     → asset_material                Sphere with shading
+  ASSET_AUDIO        → asset_audio                   Musical note
+  ASSET_SCRIPT       → asset_script                  Code brackets {}
+  ASSET_PREFAB       → asset_prefab                  Stack of cubes
+  ASSET_UNKNOWN      → asset_unknown                 Question mark
+
+BLUEPRINT NODES:
+  BP_EVENT           → bp_event                      Lightning bolt
+  BP_FUNCTION        → bp_function                   'f' in circle
+  BP_VARIABLE        → bp_variable                   'v' badge / box
+  BP_FLOW            → bp_flow                       Arrow right
+  BP_MATH            → bp_math                       + − × ÷ symbols
+  BP_LOGIC           → bp_logic                      AND gate shape
+  BP_CAST            → bp_cast                       Type conversion arrow
+  BP_MACRO           → bp_macro                      'M' badge
+
+MATERIAL NODES:
+  MAT_OUTPUT         → mat_output                    Circle with arrow out
+  MAT_TEXTURE        → mat_texture                   Checkerboard square
+  MAT_CONSTANT       → mat_constant                  # hash symbol
+  MAT_MULTIPLY       → mat_multiply                  × symbol
+  MAT_ADD            → mat_add                       + in circle
+
+CODE EDITOR:
+  CODE_FILE          → code_file                     File with code lines
+  CODE_COMPILE       → code_compile                  Wrench + file
+  CODE_RUN           → code_run                      Play on file
+
+PREFAB:
+  PREFAB             → prefab                        Linked cubes
+  PREFAB_APPLY       → prefab_apply                  Checkmark on cube
+  PREFAB_BREAK       → prefab_break                  Broken chain / cube
+
+─────────────────────────────────────────────────────────────────────────────
+SVG FORMAT REQUIREMENTS:
+  • viewBox="0 0 24 24"  (24x24 unit canvas – standard material design size)
+  • No external references, no bitmap data
+  • Single color fills preferred (#FFFFFF white – tinted at runtime)
+  • File encoding: UTF-8, no BOM
+  • Maximum file size: 8 KB per icon
+
+PNG FORMAT REQUIREMENTS:
+  • Dimensions: 64×64 pixels
+  • Color mode: RGBA (32-bit, with transparency)
+  • White icon on transparent background (#FFFFFF fill, alpha channel used)
+  • Format: PNG, no interlacing
+
+ICON GENERATION TOOLS:
+  • Inkscape (free): File → Export PNG at 64px
+  • Material Design Icons: https://fonts.google.com/icons (free, Apache 2.0)
+  • Lucide icons: https://lucide.dev (free, MIT)
+  • Feather icons: https://feathericons.com (free, MIT)
+
+RUNTIME TINTING:
+  Icons are rendered white (or #FFFFFF). At runtime ImGui tints them:
+    Icons().Draw(Icon::PLAY, ICON_MD, ForgeTheme::ACCENT);   // cyan tint
+  This means you only need ONE set of white icons, not colored variants.
+
+FALLBACK BEHAVIOR:
+  If no icon files are present, IconSystem::GenerateFallbackSVGs() creates
+  minimal 24x24 colored square SVGs so the editor still launches. These are
+  written to internalDataPath/icons/svg/ on first run.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 – C++ / JNI ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CALL FLOW:
+  Android OS
+    └─ ForgeActivity.java (onCreate)
+         ├─ Creates GLSurfaceView for JME
+         ├─ Starts ForgeJMEAppFull.java (JMonkeyEngine SimpleApplication)
+         └─ Calls nativeOnCreate() → android_main.cpp
+
+  android_main.cpp (NDK C++)
+    └─ EGL init → ImGui init → ForgeEditor_Init()
+         └─ Main loop: ForgeEditor_Render() each frame
+              ├─ RenderTopBar(), RenderHierarchyPanel(), etc.
+              └─ GJNI().SomeMethod() → JNIBridgeFull.cpp → Java
+
+  JNIBridgeFull.cpp (C++ → Java)
+    └─ Calls methods on EditorBridgeFull.java instance via JNI
+         └─ EditorBridgeFull.java
+              ├─ ForgeJMEAppFull (JME render thread)
+              ├─ PhysicsManager (Bullet)
+              ├─ AudioManager (OpenAL)
+              ├─ ScriptingEngine (Groovy)
+              └─ NetworkManager (TCP/UDP)
+
+JNI THREAD SAFETY:
+  • GJNI().Init() attaches to the main NDK thread's JavaVM
+  • GetEnv() in JNIBridgeFull.cpp handles thread attachment automatically
+  • JME runs on its own render thread; EditorBridgeFull uses
+    app.enqueue(Callable) to safely modify the scene graph
+
+GLOBAL ACCESSORS (ForgeEditor.cpp):
+  GEditor()  → ForgeEditorState&   (all editor UI state)
+  GJNI()     → JNIBridgeFull&      (JNI bridge singleton)
+
+KEY TYPES (ForgeEditor.h):
+  SceneNode        - mirrors JME Spatial (id, name, transform, children)
+  AssetEntry       - project browser file/folder entry
+  LogEntry         - console log entry (level, message, timestamp)
+  PanelState       - open/minimized/floating per panel
+  AnimClip         - animation clip (name, length, fps, loop)
+  ForgeEditorState - everything above collected in one global struct
+  EditorMode       - MODE_3D | MODE_2D | BLUEPRINT
+  PlayState        - STOPPED | PLAYING | PAUSED
+  JMESpatialType   - BOX|SPHERE|CYLINDER|CAPSULE|TORUS|PLANE|TERRAIN|
+                     LIGHT_POINT|LIGHT_DIRECTIONAL|LIGHT_SPOT|CAMERA|
+                     PARTICLE|AUDIO|UI_ELEMENT
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 – JNI METHOD REFERENCE (all 102 methods)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All called as: GJNI().MethodName(args...)
+
+LIFECYCLE:
+  Init(JavaVM* vm, jobject activity)
+  Destroy()
+  bool IsReady()
+
+GAME STATE:
+  StartGame()           PauseGame()           StopGame()
+  SetEditorMode(bool)
+
+SCENE:
+  NewScene(name)        SaveScene(path)        LoadScene(path)
+  SyncSceneTree()       string GetSceneTreeJSON()
+
+SPATIALS:
+  int  AddSpatial(JMESpatialType, name, parentId)
+  void RemoveSpatial(id)
+  void SetVisible(id, bool)
+  void SetSpatialName(id, name)
+  int  DuplicateSpatial(id)
+  void GetTransform(id, tx,ty,tz, rx,ry,rz, sx,sy,sz)   [out params]
+
+TRANSFORM:
+  SetTranslation(id, x,y,z)
+  SetRotation(id, eulerX,eulerY,eulerZ)   [degrees]
+  SetScale(id, x,y,z)
+
+MATERIAL:
+  SetMaterialColor(id, r,g,b,a)
+  SetMaterialPBR(id, metallic, roughness, emR,emG,emB)
+  SetMaterialTexture(id, slot, assetPath)   [slot: "DiffuseMap","NormalMap",...]
+  ApplyMaterialFile(id, matPath)
+
+LIGHTS:
+  int  AddLight(type, parentId)    [type: 0=point 1=dir 2=spot 3=ambient]
+  void SetLightColor(id, r,g,b,a)
+  void SetLightIntensity(id, intensity)
+
+CAMERA:
+  SetCameraTransform(ex,ey,ez, lx,ly,lz)   [eye + lookAt]
+  SetCameraFOV(degrees)
+
+ANIMATION:
+  PlayAnimation(id, clipName, loop)
+  StopAnimation(id)
+  SetAnimSpeed(id, speed)
+  string GetAnimClipsJSON(id)
+
+PHYSICS (Bullet):
+  int  AddRigidBody(spatialId, shape, mass, halfExtents[3])
+  void RemoveRigidBody(rbId)
+  void SetMass(rbId, mass)
+  void SetKinematic(rbId, bool)
+  void SetFriction(rbId, friction)
+  void SetRestitution(rbId, restitution)
+  void ApplyImpulse(rbId, ix,iy,iz)
+  void ApplyForce(rbId, fx,fy,fz)
+  void SetLinearVelocity(rbId, vx,vy,vz)
+  void SetGravity(gx,gy,gz)
+  vector<float> PhysicsRaycast(ox,oy,oz, dx,dy,dz, maxDist)
+                → [hitX,hitY,hitZ, nX,nY,nZ, spatialId]  or empty
+  int  AddCharacter(spatialId, radius, height)
+  void SetWalkDirection(charId, dx,dy,dz)
+  void CharacterJump(charId)
+  bool IsOnGround(charId)
+
+AUDIO (OpenAL):
+  int  CreateAudio(assetPath, positional, loop, stream)
+  void AttachAudio(audioId, spatialId)
+  void PlayAudio(id)      PauseAudio(id)      StopAudio(id)
+  void SetAudioVolume(id, vol)
+  void SetAudioPitch(id, pitch)
+  void SetAudioPosition(id, x,y,z)
+  void PlayMusic(path, fadeTimeSec)
+  void StopMusic()
+  void SetMasterVolume(vol)   SetMusicVolume(vol)   SetSfxVolume(vol)
+  void SetListenerPosition(x,y,z, dx,dy,dz, ux,uy,uz)
+
+SCRIPTING (Groovy):
+  int  RegisterScript(name, source)
+  bool CompileScript(id)
+  string GetScriptError(id)
+  void AttachScript(scriptId, spatialId)
+  void DetachScript(scriptId, spatialId)
+  void UpdateScriptSource(id, newSource)
+  string GetScriptListJSON()
+
+NETWORKING:
+  void HostServer(port, maxPlayers)
+  void ConnectServer(host, port, timeoutMs)
+  void DisconnectNetwork()
+  void BroadcastTransform(entityId, tx,ty,tz, rx,ry,rz,rw)
+  void SendChat(message)
+  void PingNetwork()
+  string GetNetworkStatusJSON()
+
+ASSETS:
+  string GetAssetListJSON(path)
+  void ImportAsset(srcPath, dstPath)
+  void BuildProject(outDir, platform, callback)
+
+POST-PROCESSING:
+  SetBloomEnabled(bool)     SetBloomIntensity(float)
+  SetSSAOEnabled(bool)
+  SetDOFEnabled(bool)       SetDOFFocusDistance(float)
+  SetFXAAEnabled(bool)
+  SetShadowIntensity(float)
+  SetSunDirection(x,y,z)
+  SetGridVisible(bool)
+
+UNDO/REDO & LOGS:
+  Undo()    Redo()    bool CanUndo()    bool CanRedo()
+  PollLogs()                            → reads JME log buffer → GEditor().logs
+  unsigned int RenderPreviewFrame(w,h) → GL texture ID of JME viewport
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8 – PANEL / WINDOW REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Panel key          Function                  Source file
+───────────────────────────────────────────────────────────────
+"hierarchy"      → RenderHierarchyPanel()    HierarchyPanel.cpp
+"inspector"      → RenderInspectorPanel()    InspectorPanel.cpp
+                   RenderInspectorPanelFull() InspectorPanelFull.cpp
+"project"        → RenderProjectPanel()      ProjectPanel.cpp
+"console"        → RenderConsolePanel()      EditorPanels.cpp
+"animator"       → RenderAnimatorPanel()     EditorPanels.cpp
+"blueprint"      → RenderBlueprintEditor()   BlueprintEditor.cpp
+"material"       → RenderMaterialEditor()    MaterialEditor.cpp
+"codeeditor"     → RenderCodeEditor()        CodeEditor.cpp
+"prefabs"        → RenderPrefabPanel()       PrefabSystem.cpp
+"network"        → RenderNetworkPanel()      NetworkPanel.cpp
+(viewport)       → RenderViewport3D()        EditorPanels.cpp
+                   RenderViewport2D()
+(floating)       → RenderGamePreview()       EditorPanels.cpp
+(modal)          → RenderSettingsWindow()    EditorPanels.cpp
+                   RenderBuildWindow()
+                   RenderNewObjectPopup()
+                   RenderAboutModal()
+(overlay)        → RenderTransformGizmo()    TransformGizmo.cpp
+(inspector sect) → DrawPrefabInspectorSection() PrefabSystem.cpp
+
+Bottom bar buttons (always visible):
+  Scene | Blueprint | Material | Code | Prefabs | Network | Settings | FPS
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9 – GRADLE BUILD.GRADLE (complete content reference)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+See: android/src/main/build.gradle
+
+Key sections:
+  compileSdk 34
+  minSdk 26 (Android 8.0 – first with OpenGL ES 3.2 guaranteed)
+  targetSdk 34
+
+  ndk { abiFilters "arm64-v8a", "x86_64" }
+
+  dependencies {
+    // JMonkeyEngine 3.6.1-stable
+    implementation "org.jmonkeyengine:jme3-core:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-android:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-android-native:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-bullet:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-bullet-native:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-bullet-native-android:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-terrain:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-effects:3.6.1-stable"
+    implementation "org.jmonkeyengine:jme3-openal-soft:3.6.1-stable"
+    // Scripting
+    implementation "org.codehaus.groovy:groovy:3.0.19"
+    // Networking
+    implementation "com.esotericsoftware:kryonet:2.22.0-RC1"
+    // JSON
+    implementation "org.json:json:20231013"
+    // AndroidX
+    implementation "androidx.appcompat:appcompat:1.6.1"
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 10 – COMMON ISSUES & SOLUTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ISSUE: "No implementation found for native method"
+FIX:   Make sure libforge_editor.so is being packaged in the APK.
+       Check build.gradle ndk.abiFilters and CMakeLists.txt path.
+
+ISSUE: "libbulletjme.so: cannot open shared object"
+FIX:   Add jme3-bullet-native-android to Gradle deps.
+       Add packagingOptions { pickFirst "lib/**/libc++_shared.so" }
+
+ISSUE: ImGui renders black / no UI visible
+FIX:   Verify EGL context is OpenGL ES 3.0 (EGL_OPENGL_ES3_BIT).
+       Check ImGui_ImplOpenGL3_Init("#version 300 es") is called.
+
+ISSUE: Icons appear as white squares
+FIX:   Copy the icons/ folder into assets before building.
+       Or let GenerateFallbackSVGs() create minimal fallbacks.
+       Check internalDataPath permissions.
+
+ISSUE: JME scene not rendering in viewport
+FIX:   RenderPreviewFrame() returns 0 if JME not yet started.
+       Call GJNI().StartGame() after Init(), verify ForgeActivity
+       calls nativeOnSurfaceCreated() with correct GL texture ID.
+
+ISSUE: Groovy scripting fails with ClassNotFoundException
+FIX:   Add groovy:3.0.19 to Gradle deps.
+       Ensure proguard keeps Groovy: -keep class groovy.** { *; }
+
+ISSUE: Network connect fails immediately
+FIX:   Add INTERNET permission to AndroidManifest.xml (already included).
+       Check firewall / mobile data settings on device.
+
+ISSUE: "Duplicate class" build error
+FIX:   Add to build.gradle:
+       configurations.all { resolutionStrategy { force "..." } }
+       Common conflict: multiple versions of kotlin-stdlib.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 11 – FILE COUNT SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  C++ source files (.cpp):  22
+  C++ header files (.h):    15
+  Java source files (.java): 9
+  Build/config files:        5
+  Documentation:             2
+  Total source files:       53
+  Icon SVG files needed:    72 (provided separately)
+  Icon PNG files needed:    72 (provided separately)
+  Third-party (not in repo): imgui, nanosvg, stb, android_native_app_glue
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+END OF SPECIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
